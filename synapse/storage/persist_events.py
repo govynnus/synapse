@@ -128,6 +128,7 @@ class _EventPeristenceQueue:
             # we can just add these new events to that item.
             end_item = queue[-1]
             if end_item.backfilled == backfilled:
+                logger.debug("Adding persistence batch to the existing item")
                 end_item.events_and_contexts.extend(events_and_contexts)
                 return end_item.deferred.observe()
 
@@ -160,7 +161,7 @@ class _EventPeristenceQueue:
         """
 
         if room_id in self._currently_persisting_rooms:
-            logger.debug("%s is already being persisted; waiting")
+            logger.debug("%s is already being persisted; waiting", room_id)
             return
 
         self._currently_persisting_rooms.add(room_id)
