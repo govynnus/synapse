@@ -160,6 +160,7 @@ class _EventPeristenceQueue:
         """
 
         if room_id in self._currently_persisting_rooms:
+            logger.debug("%s is already being persisted; waiting")
             return
 
         self._currently_persisting_rooms.add(room_id)
@@ -169,6 +170,11 @@ class _EventPeristenceQueue:
             try:
                 queue = self._get_drainining_queue(room_id)
                 for item in queue:
+                    logger.debug(
+                        "Persisting events in %s: %s",
+                        room_id,
+                        [e.event_id for e, c in item.events_and_contexts],
+                    )
                     try:
                         ret = await per_item_callback(item)
                     except Exception:
@@ -178,6 +184,7 @@ class _EventPeristenceQueue:
                     else:
                         with PreserveLoggingContext():
                             item.deferred.callback(ret)
+                    logger.debug("Completed event batch in %s", room_id)
             finally:
                 queue = self._event_persist_queues.pop(room_id, None)
                 if queue:
