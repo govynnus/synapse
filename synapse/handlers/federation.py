@@ -1989,9 +1989,11 @@ class FederationHandler(BaseHandler):
                     event, context
                 )
 
+            logger.debug("Persisting %s", event.event_id)
             await self.persist_events_and_notify(
                 event.room_id, [(event, context)], backfilled=backfilled
             )
+            logger.debug("Persisted %s", event.event_id)
         except Exception:
             run_in_background(
                 self.store.remove_push_actions_from_staging, event.event_id
