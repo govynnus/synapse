@@ -3073,20 +3073,6 @@ presence:
   #
   #enabled: false
 
-  # Presence routers are third-party modules that can specify additional logic
-  # to where presence updates from users are routed.
-  #
-  presence_router:
-    # The custom module's class. Uncomment to use a custom presence router module.
-    #
-    #module: &quot;my_custom_router.PresenceRouter&quot;
-
-    # Configuration options of the custom module. Refer to your module's
-    # documentation for available options.
-    #
-    #config:
-    #  example_option: 'something'
-
 # Whether to require authentication to retrieve profile data (avatars,
 # display names) of other users through the client API. Defaults to
 # 'false'. Note that profile data is also available via the federation
@@ -7582,6 +7568,40 @@ for a list of possible parameters), and a boolean indicating whether the user pe
 the request is a server admin.</p>
 <p>Modules can modify the <code>request_content</code> (by e.g. adding events to its <code>initial_state</code>),
 or deny the room's creation by raising a <code>module_api.errors.SynapseError</code>.</p>
+<h4 id="presence-router-callbacks"><a class="header" href="#presence-router-callbacks">Presence router callbacks</a></h4>
+<p>Presence router callbacks allow module developers to specify additional users (local or remote)
+to receive certain presence updates from local users. Presence router callbacks can be 
+registered using the module API's <code>register_presence_router_callbacks</code> method.</p>
+<p>The available presence router callbacks are:</p>
+<pre><code class="language-python">async def get_users_for_states(
+    self,
+    state_updates: Iterable[&quot;synapse.api.UserPresenceState&quot;],
+) -&gt; Dict[str, Set[&quot;synapse.api.UserPresenceState&quot;]]:
+</code></pre>
+<p><strong>Requires</strong> <code>get_interested_users</code> to also be registered</p>
+<p>Called when processing updates to the presence state of one or more users. This callback can
+be used to instruct the server to forward that presence state to specific users. The module
+must return a dictionary that maps from Matrix user IDs (which can be local or remote) to the
+<code>UserPresenceState</code> changes that they should be forwarded.</p>
+<p>Synapse will then attempt to send the specified presence updates to each user when possible.</p>
+<pre><code class="language-python">async def get_interested_users(
+        self, 
+        user_id: str
+) -&gt; Union[Set[str], &quot;synapse.module_api.PRESENCE_ALL_USERS&quot;]
+</code></pre>
+<p><strong>Requires</strong> <code>get_users_for_states</code> to also be registered</p>
+<p>Called when determining which users someone should be able to see the presence state of. This
+callback should return complementary results to <code>get_users_for_state</code> or the presence information 
+may not be properly forwarded.</p>
+<p>The callback is given the Matrix user ID for a local user that is requesting presence data and
+should return the Matrix user IDs of the users whose presence state they are allowed to
+query. The returned users can be local or remote. </p>
+<p>Alternatively the callback can return <code>synapse.module_api.PRESENCE_ALL_USERS</code>
+to indicate that the user should receive updates from all known users.</p>
+<p>For example, if the user <code>@alice:example.org</code> is passed to this method, and the Set 
+<code>{&quot;@bob:example.com&quot;, &quot;@charlie:somewhere.org&quot;}</code> is returned, this signifies that Alice 
+should receive presence updates sent by Bob and Charlie, regardless of whether these users 
+share a room.</p>
 <h3 id="porting-an-existing-module-that-uses-the-old-interface"><a class="header" href="#porting-an-existing-module-that-uses-the-old-interface">Porting an existing module that uses the old interface</a></h3>
 <p>In order to port a module that uses Synapse's old module interface, its author needs to:</p>
 <ul>
@@ -7749,7 +7769,12 @@ action is blocked when at least one of the configured spam checkers flags it.</p
 <p>The <a href="https://github.com/matrix-org/mjolnir">Mjolnir</a> project is a full fledged
 example using the Synapse spam checking API, including a bot for dynamic
 configuration.</p>
-<div id="chapter_begin" style="break-before: page; page-break-before: always;"></div><h1 id="presence-router-module"><a class="header" href="#presence-router-module">Presence Router Module</a></h1>
+<div id="chapter_begin" style="break-before: page; page-break-before: always;"></div><h2 style="color:red">
+This page of the Synapse documentation is now deprecated. For up to date
+documentation on setting up or writing a presence router module, please see
+<a href="modules.html">this page</a>.
+</h2>
+<h1 id="presence-router-module"><a class="header" href="#presence-router-module">Presence Router Module</a></h1>
 <p>Synapse supports configuring a module that can specify additional users
 (local or remote) to should receive certain presence updates from local
 users.</p>
@@ -9969,6 +9994,16 @@ specific <code>user_id</code>.</p>
             &quot;address&quot;: &quot;&lt;user_mail_2&gt;&quot;
         }
     ],
+    &quot;external_ids&quot;: [
+        {
+            &quot;auth_provider&quot;: &quot;&lt;provider1&gt;&quot;,
+            &quot;external_id&quot;: &quot;&lt;user_id_provider_1&gt;&quot;
+        },
+        {
+            &quot;auth_provider&quot;: &quot;&lt;provider2&gt;&quot;,
+            &quot;external_id&quot;: &quot;&lt;user_id_provider_2&gt;&quot;
+        }
+    ],
     &quot;avatar_url&quot;: &quot;&lt;avatar_url&gt;&quot;,
     &quot;admin&quot;: false,
     &quot;deactivated&quot;: false
@@ -9976,36 +10011,44 @@ specific <code>user_id</code>.</p>
 </code></pre>
 <p>To use it, you will need to authenticate by providing an <code>access_token</code> for a
 server admin: <a href="admin_api/../usage/administration/admin_api">Admin API</a></p>
+<p>Returns HTTP status code:</p>
+<ul>
+<li><code>201</code> - When a new user object was created.</li>
+<li><code>200</code> - When a user was modified.</li>
+</ul>
 <p>URL parameters:</p>
 <ul>
 <li><code>user_id</code>: fully-qualified user id: for example, <code>@user:server.com</code>.</li>
 </ul>
 <p>Body parameters:</p>
 <ul>
-<li>
-<p><code>password</code>, optional. If provided, the user's password is updated and all
-devices are logged out.</p>
+<li><code>password</code> - string, optional. If provided, the user's password is updated and all
+devices are logged out.</li>
+<li><code>displayname</code> - string, optional, defaults to the value of <code>user_id</code>.</li>
+<li><code>threepids</code> - array, optional, allows setting the third-party IDs (email, msisdn)
+<ul>
+<li><code>medium</code> - string. Kind of third-party ID, either <code>email</code> or <code>msisdn</code>.</li>
+<li><code>address</code> - string. Value of third-party ID.
+belonging to a user.</li>
+</ul>
 </li>
-<li>
-<p><code>displayname</code>, optional, defaults to the value of <code>user_id</code>.</p>
+<li><code>external_ids</code> - array, optional. Allow setting the identifier of the external identity
+provider for SSO (Single sign-on). Details in
+<a href="admin_api/../usage/configuration/homeserver_sample_config.html">Sample Configuration File</a>
+section <code>sso</code> and <code>oidc_providers</code>.
+<ul>
+<li><code>auth_provider</code> - string. ID of the external identity provider. Value of <code>idp_id</code>
+in homeserver configuration.</li>
+<li><code>external_id</code> - string, user ID in the external identity provider.</li>
+</ul>
 </li>
-<li>
-<p><code>threepids</code>, optional, allows setting the third-party IDs (email, msisdn)
-belonging to a user.</p>
-</li>
-<li>
-<p><code>avatar_url</code>, optional, must be a
-<a href="https://matrix.org/docs/spec/client_server/r0.6.0#matrix-content-mxc-uris">MXC URI</a>.</p>
-</li>
-<li>
-<p><code>admin</code>, optional, defaults to <code>false</code>.</p>
-</li>
-<li>
-<p><code>deactivated</code>, optional. If unspecified, deactivation state will be left
+<li><code>avatar_url</code> - string, optional, must be a
+<a href="https://matrix.org/docs/spec/client_server/r0.6.0#matrix-content-mxc-uris">MXC URI</a>.</li>
+<li><code>admin</code> - bool, optional, defaults to <code>false</code>.</li>
+<li><code>deactivated</code> - bool, optional. If unspecified, deactivation state will be left
 unchanged on existing accounts and set to <code>false</code> for new accounts.
 A user cannot be erased by deactivating with this API. For details on
-deactivating users see <a href="admin_api/user_admin_api.html#deactivate-account">Deactivate Account</a>.</p>
-</li>
+deactivating users see <a href="admin_api/user_admin_api.html#deactivate-account">Deactivate Account</a>.</li>
 </ul>
 <p>If the user already exists then optional parameters default to the current value.</p>
 <p>In order to re-activate an account <code>deactivated</code> must be set to <code>false</code>. If
@@ -10786,6 +10829,18 @@ server admin: <a href="admin_api/../usage/administration/admin_api">Admin API</a
 <li><code>user_id</code> - The fully qualified MXID: for example, <code>@user:server.com</code>. The user must
 be local.</li>
 </ul>
+<h3 id="check-username-availability"><a class="header" href="#check-username-availability">Check username availability</a></h3>
+<p>Checks to see if a username is available, and valid, for the server. See <a href="https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-register-available">the client-server 
+API</a>
+for more information.</p>
+<p>This endpoint will work even if registration is disabled on the server, unlike 
+<code>/_matrix/client/r0/register/available</code>.</p>
+<p>The API is:</p>
+<pre><code>POST /_synapse/admin/v1/username_availabile?username=$localpart
+</code></pre>
+<p>The request and response format is the same as the <a href="https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-register-available">/_matrix/client/r0/register/available</a> API.</p>
+<p>To use it, you will need to authenticate by providing an <code>access_token</code> for a
+server admin: <a href="admin_api/../usage/administration/admin_api">Admin API</a></p>
 <div id="chapter_begin" style="break-before: page; page-break-before: always;"></div><h1 id="version-api"><a class="header" href="#version-api">Version API</a></h1>
 <p>This API returns the running Synapse version and the Python version
 on which Synapse is being run. This is useful when a Synapse instance
@@ -10845,7 +10900,7 @@ the username <code>matrix</code>:</p>
 <p>This gives a Python REPL in which <code>hs</code> gives access to the
 <code>synapse.server.HomeServer</code> object - which in turn gives access to many other
 parts of the process.</p>
-<p>Note that any call which returns a coroutine will need to be wrapped in <code>ensureDeferred</code>.</p>
+<p>Note that, prior to Synapse 1.41, any call which returns a coroutine will need to be wrapped in <code>ensureDeferred</code>.</p>
 <p>As a simple example, retrieving an event from the database:</p>
 <pre><code class="language-pycon">&gt;&gt;&gt; from twisted.internet import defer
 &gt;&gt;&gt; defer.ensureDeferred(hs.get_datastore().get_event('$1416420717069yeQaw:matrix.org'))
@@ -11149,8 +11204,9 @@ small processing times.</p>
 <li><a href="development/contributing_guide.html#8-test-test-test">8. Test, test, test!</a>
 <ul>
 <li><a href="development/contributing_guide.html#run-the-linters">Run the linters.</a></li>
-<li><a href="development/contributing_guide.html#run-the-unit-tests">Run the unit tests.</a></li>
-<li><a href="development/contributing_guide.html#run-the-integration-tests">Run the integration tests.</a></li>
+<li><a href="development/contributing_guide.html#run-the-unit-tests-twisted-trial">Run the unit tests.</a></li>
+<li><a href="development/contributing_guide.html#run-the-integration-tests-sytest">Run the integration tests (SyTest).</a></li>
+<li><a href="development/contributing_guide.html#run-the-integration-tests-complement">Run the integration tests (Complement).</a></li>
 </ul>
 </li>
 <li><a href="development/contributing_guide.html#9-submit-your-patch">9. Submit your patch.</a>
@@ -11275,7 +11331,7 @@ anything was broken. They are slower than the unit tests but will
 typically catch more errors.</p>
 <p>The following command will let you run the integration test with the most common
 configuration:</p>
-<pre><code class="language-sh">$ docker run --rm -it -v /path/where/you/have/cloned/the/repository\:/src:ro -v /path/to/where/you/want/logs\:/logs matrixdotorg/sytest-synapse:py37
+<pre><code class="language-sh">$ docker run --rm -it -v /path/where/you/have/cloned/the/repository\:/src:ro -v /path/to/where/you/want/logs\:/logs matrixdotorg/sytest-synapse:buster
 </code></pre>
 <p>This configuration should generally cover  your needs. For more details about other configurations, see <a href="https://github.com/matrix-org/sytest/blob/develop/docker/README.md">documentation in the SyTest repo</a>.</p>
 <h2 id="run-the-integration-tests-a-hrefhttpsgithubcommatrix-orgcomplementcomplementa"><a class="header" href="#run-the-integration-tests-a-hrefhttpsgithubcommatrix-orgcomplementcomplementa">Run the integration tests (<a href="https://github.com/matrix-org/complement">Complement</a>).</a></h2>
